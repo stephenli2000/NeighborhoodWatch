@@ -71,3 +71,7 @@ python generate_check_in_form.py input.csv -o Custom_Registration_List.xlsx
 
 - **`extract_rsvp.py`**: Exported `.csv` file for each worksheet in the workbook.
 - **`generate_check_in_form.py`**: Formatted `.xlsx` file configured with headers, column widths, and custom row styling for event check-in.
+
+## Download the Parcels Manually
+
+Download Shapefile from https://data.sccgov.org/dataset/Parcels/h53q-4i8r, Click 'Export', then Select 'Shapefile' format, then unzip

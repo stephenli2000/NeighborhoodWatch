@@ -1,2 +1,8 @@
-pandas>=2.0.0
-openpyxl>=3.1.0
+pandas==3.0.5
+openpyxl==3.1.5
+geopy==2.5.0
+scipy==1.18.0
+matplotlib==3.11.1
+shapely==2.1.2
+geopandas==1.1.4
+contextily==1.7.1
