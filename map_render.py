@@ -15,7 +15,7 @@ Usage:
     python3 map_v15_hybrid.py \
         --blocks blocks.json \
         --shapefile parcels.shp \
-        --output master_neighborhood_map.png
+        --output map.png
 """
 
 import argparse
@@ -32,8 +32,10 @@ import contextily as cx
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
+import numpy as np
 import requests
 import shapely.affinity as affinity
+from PIL import Image, ImageDraw
 
 from geopy.geocoders import ArcGIS
 from shapely.geometry import Point, box, LineString
@@ -1275,6 +1277,106 @@ def candidate_score(
     return score
 
 
+
+def geometry_to_pixel_mask(geom, width, height, extent, origin="upper"):
+    """
+    Rasterize a shapely geometry into a PIL mask aligned to an image extent.
+    """
+    x0, x1, y0, y1 = extent
+
+    def to_px(x, y):
+        px = (x - x0) / (x1 - x0) * (width - 1)
+        if origin == "upper":
+            py = (y1 - y) / (y1 - y0) * (height - 1)
+        else:
+            py = (y - y0) / (y1 - y0) * (height - 1)
+        return (px, py)
+
+    img = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(img)
+
+    def draw_polygon(poly, fill):
+        ext = [to_px(x, y) for x, y in poly.exterior.coords]
+        if len(ext) >= 3:
+            draw.polygon(ext, fill=fill)
+        for ring in poly.interiors:
+            pts = [to_px(x, y) for x, y in ring.coords]
+            if len(pts) >= 3:
+                draw.polygon(pts, fill=0)
+
+    if geom.geom_type == "Polygon":
+        draw_polygon(geom, 255)
+    elif geom.geom_type == "MultiPolygon":
+        for poly in geom.geoms:
+            draw_polygon(poly, 255)
+
+    return np.asarray(img, dtype=float) / 255.0
+
+
+def grayscale_basemap_outside_boundary(ax, boundary_geom, extent=None):
+    """
+    Directly rewrite basemap RGB pixels outside the big red boundary.
+
+    Important: the Contextily basemap image usually extends beyond the axes
+    view to whole map tiles. Therefore the pixel mask must use the basemap
+    artist's ACTUAL extent, not ax.get_xlim()/view_bounds. Otherwise the mask
+    is shifted and strips near the top/left/right can remain colored.
+    """
+    if not ax.images:
+        return
+
+    base_artist = ax.images[-1]
+    arr = np.asarray(base_artist.get_array())
+
+    if arr.ndim != 3 or arr.shape[2] < 3:
+        return
+
+    original_dtype = arr.dtype
+    work = arr.astype(float, copy=True)
+
+    # Pull grayscale a little underneath the thick red line so there is no
+    # colored fringe at the vector/raster boundary.
+    gray_boundary = boundary_geom.buffer(-3.0)
+    if gray_boundary.is_empty:
+        gray_boundary = boundary_geom
+
+    # Use the exact image extent returned by Contextily.
+    image_extent = tuple(float(v) for v in base_artist.get_extent())
+    x0, x1, y0, y1 = image_extent
+    image_box = box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+    outside_geom = image_box.difference(gray_boundary)
+    if outside_geom.is_empty:
+        return
+
+    h, w = work.shape[:2]
+    outside_pixels = geometry_to_pixel_mask(
+        outside_geom,
+        width=w,
+        height=h,
+        extent=image_extent,
+        origin=base_artist.origin,
+    ) > 0.5
+
+    rgb = work[..., :3]
+    luminance = (
+        0.299 * rgb[..., 0]
+        + 0.587 * rgb[..., 1]
+        + 0.114 * rgb[..., 2]
+    )
+
+    rgb[outside_pixels, 0] = luminance[outside_pixels]
+    rgb[outside_pixels, 1] = luminance[outside_pixels]
+    rgb[outside_pixels, 2] = luminance[outside_pixels]
+
+    if np.issubdtype(original_dtype, np.integer):
+        info = np.iinfo(original_dtype)
+        work = np.clip(work, info.min, info.max).astype(original_dtype)
+    else:
+        work = work.astype(original_dtype)
+
+    base_artist.set_data(work)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Render neighborhood map quickly from process_blocks.py cache."
@@ -1285,7 +1387,7 @@ def main():
         default="map_cache.pkl",
         help="Intermediate cache produced by process_blocks.py",
     )
-    parser.add_argument("-o", "--output", default="master_neighborhood_map.png")
+    parser.add_argument("-o", "--output", default="map.png")
     parser.add_argument(
         "--roads-cache",
         default=None,
@@ -1294,6 +1396,22 @@ def main():
     parser.add_argument("--street-font-size", type=float, default=9.5)
     parser.add_argument("--house-number-font-size", type=float, default=3.0)
     parser.add_argument("--block-number-font-size", type=float, default=8.0)
+    parser.add_argument(
+        "--outer-boundary-linewidth",
+        type=float,
+        default=4.0,
+        help="Line width for the outer red boundary",
+    )
+    parser.add_argument(
+        "--no-house-numbers",
+        action="store_true",
+        help="Do not render house numbers on parcels",
+    )
+    parser.add_argument(
+        "--gray-outside-boundary",
+        action="store_true",
+        help="Gray out the map area outside the big red boundary",
+    )
     parser.add_argument("--building-fill", default="#CFCFCF")
     parser.add_argument("--building-edge", default="#4A4A4A")
     parser.add_argument("--building-linewidth", type=float, default=0.9)
@@ -1421,11 +1539,18 @@ def main():
             zorder=1.9,
         )
 
+    if args.gray_outside_boundary:
+        grayscale_basemap_outside_boundary(
+            ax=ax,
+            boundary_geom=outer_boundary,
+            extent=(view_xmin, view_xmax, view_ymin, view_ymax),
+        )
+
     gpd.GeoSeries([outer_boundary], crs="EPSG:3857").plot(
         ax=ax,
         facecolor="none",
         edgecolor="#D50000",
-        linewidth=2.75,
+        linewidth=args.outer_boundary_linewidth,
         zorder=3,
     )
 
@@ -1450,25 +1575,26 @@ def main():
             zorder=5,
         )
 
-    seen = set()
-    for label in parcel_number_labels:
-        key = (label["house_number"], round(label["x"], 1), round(label["y"], 1))
-        if key in seen:
-            continue
-        seen.add(key)
-        ax.text(
-            label["x"], label["y"], label["house_number"],
-            fontsize=args.house_number_font_size,
-            color="#111111",
-            ha="center", va="center",
-            zorder=7,
-            bbox=dict(
-                boxstyle="round,pad=0.04",
-                facecolor="white",
-                edgecolor="none",
-                alpha=0.55,
-            ),
-        )
+    if not args.no_house_numbers:
+        seen = set()
+        for label in parcel_number_labels:
+            key = (label["house_number"], round(label["x"], 1), round(label["y"], 1))
+            if key in seen:
+                continue
+            seen.add(key)
+            ax.text(
+                label["x"], label["y"], label["house_number"],
+                fontsize=args.house_number_font_size,
+                color="#111111",
+                ha="center", va="center",
+                zorder=7,
+                bbox=dict(
+                    boxstyle="round,pad=0.04",
+                    facecolor="white",
+                    edgecolor="none",
+                    alpha=0.55,
+                ),
+            )
 
     # Street labels first; block numbers are placed afterward.
     occupied_labels = []

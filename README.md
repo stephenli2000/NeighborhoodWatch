@@ -127,7 +127,8 @@ This generates `map_cache.pkl`.
 
 Render the map from the cache (fast step):
 ```bash
-python3 map_render.py map_cache.pkl --building-fill "#A9C7F5" --building-edge "#A9C7F5" --street-font-size 12 --block-number-font-size 15 --house-number-font-size 7
+python3 map_render.py map_cache.pkl --building-fill "#A9C7F5" --building-edge "#A9C7F5" --street-font-size 12 --block-number-font-size 15 --outer-boundary-linewidth 6 --gray-outside-boundary --house-number-font-size 7
+python3 map_render.py map_cache.pkl --building-fill "#5F8FD9" --building-edge "#5F8FD9" --street-font-size 12 --block-number-font-size 15 --outer-boundary-linewidth 6 --gray-outside-boundary --no-house-numbers --output map_no_house_number.png
 ```
 
 Optionally, retry downloading OSM road centerlines:
