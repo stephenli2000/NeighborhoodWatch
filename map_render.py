@@ -26,6 +26,7 @@ import pickle
 import re
 import statistics
 import sys
+from pathlib import Path
 
 import contextily as cx
 import geopandas as gpd
@@ -1285,6 +1286,11 @@ def main():
         help="Intermediate cache produced by process_blocks.py",
     )
     parser.add_argument("-o", "--output", default="master_neighborhood_map.png")
+    parser.add_argument(
+        "--roads-cache",
+        default=None,
+        help="Optional persistent OSM road cache (default: roads_cache.pkl beside map cache)",
+    )
     parser.add_argument("--street-font-size", type=float, default=9.5)
     parser.add_argument("--house-number-font-size", type=float, default=3.0)
     parser.add_argument("--block-number-font-size", type=float, default=8.0)
@@ -1313,18 +1319,61 @@ def main():
     local_parcels = cache["local_parcels"]
     buildings = cache.get("buildings")
     roads = cache.get("roads")
+
+    cache_path = Path(args.cache)
+    roads_cache_path = (
+        Path(args.roads_cache)
+        if args.roads_cache
+        else cache_path.with_name("roads_cache.pkl")
+    )
+
+    if (roads is None or roads.empty) and roads_cache_path.exists():
+        try:
+            with roads_cache_path.open("rb") as f:
+                persistent_roads = pickle.load(f)
+
+            if persistent_roads is not None and not persistent_roads.empty:
+                roads = persistent_roads
+                cache["roads"] = roads
+                print(
+                    f"Loaded {len(roads)} road segments from persistent road cache."
+                )
+        except Exception as exc:
+            print(f"Could not load persistent road cache: {exc}")
+
     parcel_number_labels = cache["parcel_number_labels"]
     street_label_points = cache["street_label_points"]
     view_xmin, view_ymin, view_xmax, view_ymax = cache["view_bounds"]
 
     if args.refresh_roads:
         refreshed = fetch_osm_roads(view_xmin, view_ymin, view_xmax, view_ymax)
+
         if refreshed is not None and not refreshed.empty:
             roads = refreshed
             cache["roads"] = refreshed
+
             with open(args.cache, "wb") as f:
                 pickle.dump(cache, f, protocol=pickle.HIGHEST_PROTOCOL)
-            print("Updated road cache.")
+
+            try:
+                with roads_cache_path.open("wb") as f:
+                    pickle.dump(refreshed, f, protocol=pickle.HIGHEST_PROTOCOL)
+            except Exception as exc:
+                print(f"Could not update persistent road cache: {exc}")
+
+            print(
+                f"Updated road cache with {len(refreshed)} OSM road segments."
+            )
+        elif roads is not None and not roads.empty:
+            print(
+                "OSM refresh failed — keeping "
+                f"{len(roads)} existing cached road segments."
+            )
+        else:
+            print(
+                "OSM refresh failed — no existing road cache is available; "
+                "using address-point fallback."
+            )
 
     if roads is None or roads.empty:
         print("Street-label mode: address-point fallback")

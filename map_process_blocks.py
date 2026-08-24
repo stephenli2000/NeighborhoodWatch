@@ -159,11 +159,53 @@ def main():
     ap.add_argument("-s", "--shapefile", required=True, help="County parcel shapefile")
     ap.add_argument("-o", "--output", default="map_cache.pkl", help="Intermediate cache file")
     ap.add_argument(
+        "--roads-cache",
+        default=None,
+        help="Optional persistent OSM road cache (default: roads_cache.pkl beside map cache)",
+    )
+    ap.add_argument(
         "--skip-roads",
         action="store_true",
         help="Do not attempt OSM road download while building the cache",
     )
     args = ap.parse_args()
+
+    output_path = Path(args.output)
+    roads_cache_path = (
+        Path(args.roads_cache)
+        if args.roads_cache
+        else output_path.with_name("roads_cache.pkl")
+    )
+
+    # Preserve previously downloaded road geometry. Re-running the expensive
+    # preprocessing step must never destroy a good road cache just because
+    # Overpass is temporarily unavailable.
+    previous_roads = None
+
+    if output_path.exists():
+        try:
+            with output_path.open("rb") as f:
+                previous_cache = pickle.load(f)
+            cached = previous_cache.get("roads")
+            if cached is not None and not cached.empty:
+                previous_roads = cached
+                print(
+                    f"Found {len(previous_roads)} road segments in existing map cache."
+                )
+        except Exception as exc:
+            print(f"Could not read existing map cache for roads: {exc}")
+
+    if previous_roads is None and roads_cache_path.exists():
+        try:
+            with roads_cache_path.open("rb") as f:
+                cached = pickle.load(f)
+            if cached is not None and not cached.empty:
+                previous_roads = cached
+                print(
+                    f"Found {len(previous_roads)} road segments in persistent road cache."
+                )
+        except Exception as exc:
+            print(f"Could not read persistent road cache: {exc}")
 
     if not os.path.exists(args.blocks):
         raise SystemExit(f"Missing block file: {args.blocks}")
@@ -304,9 +346,35 @@ def main():
         print(f"Building cache failed: {exc}")
         buildings = None
 
-    roads = None
+    roads = previous_roads
+
     if not args.skip_roads:
-        roads = fetch_osm_roads(*view_bounds)
+        refreshed_roads = fetch_osm_roads(*view_bounds)
+
+        if refreshed_roads is not None and not refreshed_roads.empty:
+            roads = refreshed_roads
+            try:
+                with roads_cache_path.open("wb") as f:
+                    pickle.dump(roads, f, protocol=pickle.HIGHEST_PROTOCOL)
+                print(
+                    f"Saved {len(roads)} road segments to persistent road cache: "
+                    f"{roads_cache_path}"
+                )
+            except Exception as exc:
+                print(f"Could not save persistent road cache: {exc}")
+        elif previous_roads is not None and not previous_roads.empty:
+            roads = previous_roads
+            print(
+                "OSM download failed — reusing "
+                f"{len(previous_roads)} cached road segments."
+            )
+        else:
+            roads = None
+            print("OSM download failed — no cached road segments are available.")
+    elif previous_roads is not None and not previous_roads.empty:
+        print(
+            f"Skipping OSM download — reusing {len(previous_roads)} cached road segments."
+        )
 
     cache = {
         "version": 1,
@@ -323,7 +391,7 @@ def main():
         "view_bounds": view_bounds,
     }
 
-    output = Path(args.output)
+    output = output_path
     with output.open("wb") as f:
         pickle.dump(cache, f, protocol=pickle.HIGHEST_PROTOCOL)
 
