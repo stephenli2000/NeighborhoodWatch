@@ -15,7 +15,7 @@ Usage:
     python3 map_v15_hybrid.py \
         --blocks blocks.json \
         --shapefile parcels.shp \
-        --output map.png
+        --output master_neighborhood_map.png
 """
 
 import argparse
@@ -1387,7 +1387,7 @@ def main():
         default="map_cache.pkl",
         help="Intermediate cache produced by process_blocks.py",
     )
-    parser.add_argument("-o", "--output", default="map.png")
+    parser.add_argument("-o", "--output", default="master_neighborhood_map.png")
     parser.add_argument(
         "--roads-cache",
         default=None,
@@ -1396,6 +1396,24 @@ def main():
     parser.add_argument("--street-font-size", type=float, default=9.5)
     parser.add_argument("--house-number-font-size", type=float, default=3.0)
     parser.add_argument("--block-number-font-size", type=float, default=8.0)
+    parser.add_argument(
+        "--dpi",
+        type=int,
+        default=300,
+        help="Output DPI (higher values produce a higher-resolution image)",
+    )
+    parser.add_argument(
+        "--figure-size",
+        type=float,
+        default=14.0,
+        help="Figure width/height in inches (square output)",
+    )
+    parser.add_argument(
+        "--content-scale",
+        type=float,
+        default=None,
+        help="Scale fonts and line widths. Default: auto-scale with figure-size relative to 14.",
+    )
     parser.add_argument(
         "--outer-boundary-linewidth",
         type=float,
@@ -1506,9 +1524,29 @@ def main():
             buildings_union = None
 
     print("Rendering map...")
-    fig, ax = plt.subplots(figsize=(14, 14), dpi=300)
+    fig, ax = plt.subplots(figsize=(args.figure_size, args.figure_size), dpi=args.dpi)
     ax.set_xlim(view_xmin, view_xmax)
     ax.set_ylim(view_ymin, view_ymax)
+
+    # Keep the whole map visually proportional when figure-size changes.
+    # If you only want more pixels without changing the visual scale, keep
+    # figure-size fixed and increase --dpi.
+    base_figure_size = 14.0
+    content_scale = (
+        args.content_scale
+        if args.content_scale is not None
+        else args.figure_size / base_figure_size
+    )
+
+    street_font_size = args.street_font_size * content_scale
+    house_number_font_size = args.house_number_font_size * content_scale
+    block_number_font_size = args.block_number_font_size * content_scale
+    outer_boundary_linewidth = args.outer_boundary_linewidth * content_scale
+    building_linewidth = args.building_linewidth * content_scale
+    parcel_linewidth = 0.15 * content_scale
+    block_outline_linewidth = 2.25 * content_scale
+    title_font_size = 18 * content_scale
+    title_pad = 20 * content_scale
 
     google_url = "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
     cx.add_basemap(
@@ -1524,7 +1562,7 @@ def main():
             ax=ax,
             facecolor=args.building_fill,
             edgecolor=args.building_edge,
-            linewidth=args.building_linewidth,
+            linewidth=building_linewidth,
             alpha=0.95,
             zorder=1.8,
         )
@@ -1534,7 +1572,7 @@ def main():
             ax=ax,
             facecolor="none",
             edgecolor="#9A9A9A",
-            linewidth=0.15,
+            linewidth=parcel_linewidth,
             alpha=0.10,
             zorder=1.9,
         )
@@ -1550,7 +1588,7 @@ def main():
         ax=ax,
         facecolor="none",
         edgecolor="#D50000",
-        linewidth=args.outer_boundary_linewidth,
+        linewidth=outer_boundary_linewidth,
         zorder=3,
     )
 
@@ -1571,7 +1609,7 @@ def main():
             ax=ax,
             facecolor="none",
             edgecolor=edge_color,
-            linewidth=2.25,
+            linewidth=block_outline_linewidth,
             zorder=5,
         )
 
@@ -1584,7 +1622,7 @@ def main():
             seen.add(key)
             ax.text(
                 label["x"], label["y"], label["house_number"],
-                fontsize=args.house_number_font_size,
+                fontsize=house_number_font_size,
                 color="#111111",
                 ha="center", va="center",
                 zorder=7,
@@ -1618,7 +1656,7 @@ def main():
                 )
             )
 
-        label_radius = estimate_label_radius_data(ax, street_name, args.street_font_size)
+        label_radius = estimate_label_radius_data(ax, street_name, street_font_size)
         best = None
 
         # Strongly prefer the earliest candidates, which come from the longest
@@ -1654,7 +1692,7 @@ def main():
 
         txt = ax.text(
             x, y, street_name,
-            fontsize=args.street_font_size,
+            fontsize=street_font_size,
             fontweight="bold",
             color="#111111",
             ha="center", va="center",
@@ -1665,7 +1703,7 @@ def main():
         )
         txt.set_path_effects([
             pe.Stroke(
-                linewidth=max(3.5, args.street_font_size * 0.34),
+                linewidth=max(3.5 * content_scale, street_font_size * 0.34),
                 foreground="white",
             ),
             pe.Normal(),
@@ -1677,14 +1715,14 @@ def main():
         block_id = str(row["block_id"])
         centroid = Point(float(row["centroid_x"]), float(row["centroid_y"]))
         block_radius = estimate_label_radius_data(
-            ax, block_id, args.block_number_font_size
+            ax, block_id, block_number_font_size
         ) * 0.70
         x, y = place_block_number_position(
             row["geometry"], centroid, occupied_labels, block_radius
         )
         ax.text(
             x, y, block_id,
-            fontsize=args.block_number_font_size,
+            fontsize=block_number_font_size,
             fontweight="bold",
             color="black",
             ha="center", va="center",
@@ -1700,12 +1738,12 @@ def main():
 
     ax.set_title(
         "Saratoga Neighborhood Watch Map",
-        fontsize=18,
+        fontsize=title_font_size,
         fontweight="bold",
-        pad=20,
+        pad=title_pad,
     )
     ax.set_axis_off()
-    plt.savefig(args.output, dpi=300, bbox_inches="tight")
+    plt.savefig(args.output, dpi=args.dpi, bbox_inches="tight")
     print(f"Success! Map saved as '{args.output}'.")
 
 
