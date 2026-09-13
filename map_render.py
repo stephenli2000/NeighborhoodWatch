@@ -12,10 +12,7 @@ Main improvements relative to v14:
 4) custom street labels are aligned to street direction and use simple collision avoidance
 
 Usage:
-    python3 map_v15_hybrid.py \
-        --blocks blocks.json \
-        --shapefile parcels.shp \
-        --output master_neighborhood_map.png
+    python3 map_render.py
 """
 
 import argparse
@@ -1387,15 +1384,19 @@ def main():
         default="map_cache.pkl",
         help="Intermediate cache produced by process_blocks.py",
     )
-    parser.add_argument("-o", "--output", default="master_neighborhood_map.png")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="map_300_12_house_number.png",
+    )
     parser.add_argument(
         "--roads-cache",
         default=None,
         help="Optional persistent OSM road cache (default: roads_cache.pkl beside map cache)",
     )
-    parser.add_argument("--street-font-size", type=float, default=9.5)
-    parser.add_argument("--house-number-font-size", type=float, default=3.0)
-    parser.add_argument("--block-number-font-size", type=float, default=8.0)
+    parser.add_argument("--street-font-size", type=float, default=12.0)
+    parser.add_argument("--house-number-font-size", type=float, default=7.0)
+    parser.add_argument("--block-number-font-size", type=float, default=15.0)
     parser.add_argument(
         "--dpi",
         type=int,
@@ -1405,7 +1406,7 @@ def main():
     parser.add_argument(
         "--figure-size",
         type=float,
-        default=14.0,
+        default=12.0,
         help="Figure width/height in inches (square output)",
     )
     parser.add_argument(
@@ -1417,7 +1418,7 @@ def main():
     parser.add_argument(
         "--outer-boundary-linewidth",
         type=float,
-        default=4.0,
+        default=6.0,
         help="Line width for the outer red boundary",
     )
     parser.add_argument(
@@ -1427,11 +1428,25 @@ def main():
     )
     parser.add_argument(
         "--gray-outside-boundary",
-        action="store_true",
-        help="Gray out the map area outside the big red boundary",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Gray out the map area outside the big red boundary (default: enabled)",
     )
-    parser.add_argument("--building-fill", default="#CFCFCF")
-    parser.add_argument("--building-edge", default="#4A4A4A")
+    parser.add_argument(
+        "--uniform-block-style",
+        dest="uniform_block_style",
+        action="store_true",
+        help=(
+            "Render blocks without a captain with the same black outline and "
+            "white fill as blocks with a captain"
+        ),
+    )
+    parser.add_argument("--building-fill", default="#A9C7F5")
+    parser.add_argument(
+        "--building-edge",
+        default=None,
+        help="Building outline color (default: same as --building-fill)",
+    )
     parser.add_argument("--building-linewidth", type=float, default=0.9)
     parser.add_argument(
         "--refresh-roads",
@@ -1561,7 +1576,7 @@ def main():
         buildings.plot(
             ax=ax,
             facecolor=args.building_fill,
-            edgecolor=args.building_edge,
+            edgecolor=args.building_edge or args.building_fill,
             linewidth=building_linewidth,
             alpha=0.95,
             zorder=1.8,
@@ -1594,7 +1609,7 @@ def main():
 
     # Block outlines first. Street labels get placement priority over block numbers.
     for _, row in gdf_blocks.iterrows():
-        has_captain = bool(row["block_captain"])
+        has_captain = bool(row["block_captain"]) or args.uniform_block_style
         edge_color = "#111111" if has_captain else "#00C853"
         fill_color = "#FFFFFF" if has_captain else "#00E676"
 

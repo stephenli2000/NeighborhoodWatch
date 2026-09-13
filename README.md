@@ -126,14 +126,28 @@ python3 map_process_blocks.py -b blocks.json -s data/geo_export_b641fa01-0ffc-43
 This generates `map_cache.pkl`.
 
 Render the map from the cache (fast step):
+
+The defaults produce the 300 DPI, 12-inch map with house numbers shown.
+
+Block captain version : map_300_12_house_number.png: 2850 x 1928
+                        map_300_12_house_number_no_green.png: 2850 x 1928
+Postcard version      : map_600_5_5_no_house_number.png: 2677 x 1832
+                        map_600_5_5_no_house_number_no_green.png: 2677 x 1832
 ```bash
-python3 map_render.py map_cache.pkl --dpi 300 --figure-size 12 --building-fill "#A9C7F5" --building-edge "#A9C7F5" --street-font-size 12 --block-number-font-size 15 --outer-boundary-linewidth 6 --gray-outside-boundary --house-number-font-size 7 --output map_house_number_300_12.png
-python3 map_render.py map_cache.pkl --dpi 600 --figure-size 5.5 --building-fill "#5F8FD9" --building-edge "#5F8FD9" --street-font-size 12 --block-number-font-size 15 --outer-boundary-linewidth 6 --gray-outside-boundary --no-house-numbers --output map_no_house_number_600_5_5.png
-python3 map_render.py map_cache.pkl --dpi 600 --figure-size 14 --building-fill "#A9C7F5" --building-edge "#A9C7F5" --street-font-size 12 --block-number-font-size 15 --outer-boundary-linewidth 6 --gray-outside-boundary --house-number-font-size 7 --output map_house_number_600_14.png
-python3 map_render.py map_cache.pkl --dpi 600 --figure-size 14 --building-fill "#5F8FD9" --building-edge "#5F8FD9" --street-font-size 12 --block-number-font-size 15 --outer-boundary-linewidth 6 --gray-outside-boundary --no-house-numbers --output map_no_house_number_600_14.png
+python3 map_render.py
+python3 map_render.py --uniform-block-style -o map_300_12_house_number_no_green.png
+python3 map_render.py --dpi 600 --figure-size 5.5 --building-fill "#5F8FD9" --no-house-numbers -o map_600_5_5_no_house_number.png
+python3 map_render.py --dpi 600 --figure-size 5.5 --building-fill "#5F8FD9" --no-house-numbers --uniform-block-style -o map_600_5_5_no_house_number_no_green.png
+```
+
+High resolution 1 : map_no_house_number_600_14.png: 6630 x 4479
+High resolution 2 : map_house_number_600_14.png: 6630 x 4479
+```bash
+python3 map_render.py --dpi 600 --figure-size 14 -o map_house_number_600_14.png
+python3 map_render.py --dpi 600 --figure-size 14 --building-fill "#5F8FD9" --no-house-numbers -o map_no_house_number_600_14.png
 ```
 
 Optionally, retry downloading OSM road centerlines:
 ```bash
-python3 map_render.py map_cache.pkl --refresh-roads --street-font-size 12 --block-number-font-size 15 --house-number-font-size 7
+python3 map_render.py --refresh-roads
 ```
